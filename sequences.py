@@ -1,3 +1,10 @@
+import re
+from huggingface_hub import login
+from datasets import load_dataset
+from rank_bm25 import BM25Okapi
+from nltk.tokenize import word_tokenize
+import nltk
+
 class IDContext:
     _context = {}
 
@@ -46,3 +53,71 @@ def get_input_sequences():
     query['how many students live on campus at umass amherst'] = o
 
     return query
+
+def load_ms_marco_data(n_queries,n_docs,file_path='dataset/top1000.dev'):
+    
+    query={}
+
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            #cleaned_line = re.sub(r'[^a-zA-Z0-9 {}[\]":,.]', '', line.strip())
+            split_line = line.split("\t")
+
+            q = split_line[2]
+            passage = split_line[3]
+
+         
+            if (q not in query):
+                if (len(query) >= n_queries):
+                    continue
+                query[q] = [passage]
+            elif (len(query[q]) <= n_docs):
+                query[q].append(passage)
+            
+    return dict(query)
+
+
+def load_MIND_data(n_queries,n_docs):
+    login("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")
+    
+    # Load the MindSmallReranking dataset
+    query_dict = load_dataset("BeIR/scidocs", "queries")
+    corpus_dict = load_dataset("BeIR/scidocs", "corpus")
+
+    query_list = []
+    passages = []
+
+    for q in query_dict['queries']:
+        query_list.append(q['text'])
+    for d in corpus_dict['corpus']:
+        passages.append(d['text'])
+
+    tokenized_passages = [word_tokenize(passage.lower()) for passage in passages]
+    tokenized_query = [word_tokenize(query_i.lower()) for query_i in query_list]
+    bm25 = BM25Okapi(tokenized_passages)
+
+
+    query = {}
+    for i in range(n_queries):
+        query_i = query_list[i]
+        scores = bm25.get_scores(tokenized_query[i])
+
+        # Get the top 100 passages (or fewer if there are not enough passages)
+        top_passages_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:n_docs]
+
+        # Retrieve the top passages
+        top_passages = [passages[i] for i in top_passages_indices]
+        query[query_i] = top_passages
+
+    return dict(query)
+
+    
+
+# query_dict = load_ms_marco_data()
+# # Display the structure of the loaded data
+# for query, passages in list(query_dict.items())[:3]:  # Displaying first 3 entries as a sample
+#     print(f"Query: {query}")
+#     print(f"Passages: {passages[:3]}...")  # Displaying first 3 passages as a sample
+#     print("\n")
+
+#print(load_MIND_data(1,3))

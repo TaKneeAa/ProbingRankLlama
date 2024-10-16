@@ -3,10 +3,11 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from peft import PeftModel, PeftConfig
 import os
 from huggingface_hub import login
-from sequences import get_input_sequences, IDContext
+from sequences import load_ms_marco_data, load_MIND_data, IDContext
 
 activations = {}
 handle = []
+n_layers = 40
 
 def quantize_neurons(activation_tensor, output_precision=4):
     activation_tensor = activation_tensor.to(torch.float32)
@@ -34,21 +35,22 @@ def get_activation(name):
         # print('LAYER_OUTPUT_SHAPE',output.shape)
         qid, doc_id = IDContext.get()
         activations[name] = output[0].detach().cpu().to(torch.float16)
-        output_path = f'activations/q{qid}/d{doc_id}{name}.pt'
+        output_path = f'bigactivations/q{qid}/d{doc_id}{name}.pt'
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         torch.save(quantize_neurons(activations[name]), output_path)
     return hook
 
 login("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")
-tokenizer = AutoTokenizer.from_pretrained('meta-llama/Llama-2-7b-hf')
-model = get_model('castorini/rankllama-v1-7b-lora-passage')
+tokenizer = AutoTokenizer.from_pretrained('meta-llama/Llama-2-13b-hf')
+model = get_model('castorini/rankllama-v1-13b-lora-passage')
 print(model)
 
-for i in range(32):
+for i in range(n_layers):
     mlp_layer = model.model.layers[i].mlp  
     handle.append(mlp_layer.register_forward_hook(get_activation(f'layer_{i}_activations')))
 
-query_dict = get_input_sequences()
+#query_dict = load_ms_marco_data(100,91)
+query_dict = load_MIND_data(51,91)
 for i, (query, docs) in enumerate(query_dict.items()):
     for j, doc in enumerate(docs):
         IDContext.set(i, j)
